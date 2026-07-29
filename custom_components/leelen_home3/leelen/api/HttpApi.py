@@ -40,6 +40,8 @@ class HttpApi:
         self._refresh_token = ""
         self._group_id = ""
         self._entry_id = None
+        self._token_expires_in = 0  # token 有效期（秒），由 refresh 接口返回
+        self._token_created_at = 0  # token 创建时间戳（毫秒）
 
     def get_secret(self, num: int) -> str:
         chars = string.ascii_letters + string.digits
@@ -92,9 +94,15 @@ class HttpApi:
                         self._access_token = new_token
                         if new_refresh:
                             self._refresh_token = new_refresh
+                        # 保存 token 有效期，用于提前刷新判断
+                        expires_in = p.get("expiresIn")
+                        if expires_in:
+                            self._token_expires_in = int(expires_in)
+                            self._token_created_at = int(time.time() * 1000)
+                            LogUtils.d("HttpApi", f"token 有效期 expiresIn={expires_in}s（约 {expires_in//3600} 小时）")
                         # 持久化保存新 token，防止重启后使用旧 token
                         await self._persist_tokens()
-                        LogUtils.d("HttpApi", "token刷新成功(refreshToken方式)")
+                        LogUtils.d("HttpApi", f"token刷新成功(refreshToken方式), expiresIn={expires_in}s")
                         return True
                 elif data.get("result") == 10002:
                     LogUtils.e("refreshToken 已过期，触发重新认证")
@@ -121,11 +129,32 @@ class HttpApi:
                 **entry.data,
                 "accessToken": self._access_token,
                 "refreshToken": self._refresh_token,
+                "expiresIn": self._token_expires_in,
+                "tokenCreatedAt": self._token_created_at,
             }
         )
         LogUtils.d("HttpApi", "token 已持久化保存到 config entry")
 
+    def _is_token_expires_soon(self, within_seconds=600):
+        """检查 token 是否即将过期（默认 10 分钟内）。"""
+        if not self._token_expires_in or not self._token_created_at:
+            return False
+        elapsed = int(time.time() * 1000) - self._token_created_at
+        remaining = self._token_expires_in * 1000 - elapsed
+        if remaining <= 0:
+            LogUtils.d("HttpApi", "token 已过期，需要刷新")
+            return True
+        if remaining < within_seconds * 1000:
+            LogUtils.d("HttpApi", f"token 即将过期（剩余 {remaining//1000}s），提前刷新")
+            return True
+        return False
+
     async def _make_request(self, url, params, seq, version="V1.0"):
+        # token 即将过期时主动刷新，避免请求返回 10001 再重试
+        if self._is_token_expires_soon():
+            LogUtils.d("HttpApi", "token 即将过期，主动刷新")
+            await self._do_refresh_token()
+
         session = async_get_clientsession(self._hass)
         headers = {}
         if self._access_token:
@@ -396,6 +425,12 @@ class HttpApi:
         if refresh_token:
             self._refresh_token = refresh_token
             LogUtils.d("HttpApi", "从 verifyCodeLogin 获取到 refreshToken")
+        # 保存 token 有效期
+        expires_in = code_login_result.get("params", {}).get("expiresIn")
+        if expires_in:
+            self._token_expires_in = int(expires_in)
+            self._token_created_at = int(time.time() * 1000)
+            LogUtils.d("HttpApi", f"verifyCodeLogin 返回 expiresIn={expires_in}s")
         user_data = await self.get_user(accessToken)
         username = user_data.get("params", {}).get("userName")
         password = user_data.get("params", {}).get("password")

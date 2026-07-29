@@ -22,7 +22,7 @@ Home Assistant integration for Leelen (立林) smart home devices.
 1. Open HACS in your Home Assistant
 2. Go to "Integrations" → Click "+" button
 3. Search for "Leelen Home" or add as custom repository:
-   - Repository: `https://github.com/nishuzumi/leelen_home3`
+   - Repository: `https://github.com/snailll2/leelen_home3`
    - Category: Integration
 4. Click "Download"
 5. Restart Home Assistant

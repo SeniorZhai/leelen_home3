@@ -44,6 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.username = entry.data.get(CONF_USERNAME, "")
     api._access_token = entry.data.get(CONF_ACCESS_TOKEN, "")
     api._refresh_token = entry.data.get(CONF_REFRESH_TOKEN, "")
+    api._token_expires_in = entry.data.get("expiresIn", 0)
+    api._token_created_at = entry.data.get("tokenCreatedAt", 0)
     api._group_id = entry.data.get(CONF_GROUP_ID, "")
 
     LogUtils.d(__name__, f"API实例: {api}")
