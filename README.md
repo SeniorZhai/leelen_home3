@@ -7,12 +7,13 @@ Home Assistant integration for Leelen (立林) smart home devices.
 
 ## Features
 
-- **Climate**: Central air conditioner control
-- **Cover**: Curtain motor control
-- **Light**: Wireless light control
-- **Sensor**: Temperature, humidity, PM2.5 sensors
-- **Binary Sensor**: Door sensors, water immersion sensors
-- **Switch**: Smart wall socket control
+- **Climate**: Central air conditioner and floor-heating control with current
+  temperature and humidity, target temperature, mode, and fan-speed state
+- **Fan**: Fresh-air system control
+- **Sensor**: Temperature and humidity sensors exposed by every discovered
+  thermostat panel
+- **Live state**: Optional MQTT state pushes with REST used for the initial
+  snapshot, disconnected fallback, and control confirmation
 
 ## Installation
 
@@ -21,7 +22,7 @@ Home Assistant integration for Leelen (立林) smart home devices.
 1. Open HACS in your Home Assistant
 2. Go to "Integrations" → Click "+" button
 3. Search for "Leelen Home" or add as custom repository:
-   - Repository: `https://github.com/snailll2/leelen_home3`
+   - Repository: `https://github.com/nishuzumi/leelen_home3`
    - Category: Integration
 4. Click "Download"
 5. Restart Home Assistant
@@ -39,13 +40,18 @@ Home Assistant integration for Leelen (立林) smart home devices.
 4. Enter your phone number and verification code
 5. Select the devices you want to add
 
+To enable real-time state updates, open the integration options and enter the
+MQTT Client ID and username already registered by the Leelen app. Both values
+are required; leaving both empty keeps REST fallback sync enabled.
+
 ## Supported Devices
 
-| Device Type | Model | Type Code |
-|------------|-------|-----------|
-| climate | DEVICE_TYPE_CLIMATE  | 8221 |
-| climate | DEVICE_TYPE_HEATTER | 8218 |
-| fan | DEVICE_TYPE_FRESHER | 8217 |
+| Home Assistant platform | Leelen logical service | Service type |
+|---|---|---:|
+| climate | Central air conditioner, including current temperature and humidity | 8259 |
+| climate | Floor heating, including current temperature and humidity | 8268 |
+| fan | Fresh-air system | 8261 |
+| sensor | Thermostat temperature and humidity sensors | 8272 |
 
 ## Troubleshooting
 

@@ -1,55 +1,85 @@
 import logging
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .leelen.api.HttpApi import HttpApi
+from .device_catalog import (
+    entity_unique_id,
+    extract_humidity,
+    extract_temperature,
+    iter_platform_services,
+)
 
 _LOGGER = logging.getLogger(__name__)
-FIID_READ = 49415
-
+FIID_TEMPERATURE = 16641
+FIID_HUMIDITY = 16642
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     devices = hass.data[DOMAIN].get('devices', {}).get(entry.entry_id, [])
+    coordinator = (
+        hass.data[DOMAIN].get(entry.entry_id, {}).get("coordinator")
+    )
     entities = []
 
-    for device in devices:
-        direct_did = device.get("direct_did")
-
-        for logic_srv in device.get("logic_srv", []):
-            siid = logic_srv.get("siid")
-            params = logic_srv.get("params", [])
-
-            for param in params:
-                if param.get("dataType") in [1, 2, 3]:
-                    entities.append(LeelenSensor(hass, entry, device, logic_srv, siid, direct_did, param))
+    for device, logic_srv in iter_platform_services(devices, "sensor"):
+        entities.extend(
+            (
+                LeelenPanelSensor(
+                    entry,
+                    device,
+                    logic_srv,
+                    coordinator,
+                    FIID_TEMPERATURE,
+                ),
+                LeelenPanelSensor(
+                    entry,
+                    device,
+                    logic_srv,
+                    coordinator,
+                    FIID_HUMIDITY,
+                ),
+            )
+        )
 
     async_add_entities(entities)
 
 
-class LeelenSensor(SensorEntity):
+class LeelenPanelSensor(SensorEntity):
+    """A temperature or humidity reading from one thermostat panel."""
 
-    def __init__(self, hass, entry, device, logic_srv, siid, direct_did, param_info):
-        self._hass = hass
+    _attr_should_poll = False
+
+    def __init__(self, entry, device, logic_srv, coordinator, fiid):
         self._entry = entry
         self._device = device
         self._logic_srv = logic_srv
-        self._siid = siid
-        self._direct_did = direct_did
-        self._param_info = param_info
         self._did = device.get("dev_addr")
+        self._siid = logic_srv.get("siid")
+        self._coordinator = coordinator
+        self._fiid = fiid
 
-        property_name = param_info.get("propertyName", "unknown")
-        self._name = f"{logic_srv.get('logic_name', '')} {property_name}"
-        self._unique_id_suffix = f"{self._did}_{self._siid}_{param_info.get('propertyId', 'unknown')}"
-
-        self._attr_unique_id = f"leelen_sensor_{self._unique_id_suffix}"
-        self._attr_icon = "mdi:thermometer"
-        self._attr_native_unit_of_measurement = param_info.get("unit")
+        base_name = logic_srv.get("logic_name", "Panel")
+        if fiid == FIID_TEMPERATURE:
+            self._name = f"{base_name} 温度"
+            self._attr_unique_id = entity_unique_id(device, logic_srv, "sensor")
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_icon = "mdi:thermometer"
+        else:
+            self._name = f"{base_name} 湿度"
+            self._attr_unique_id = (
+                f"{entity_unique_id(device, logic_srv, 'sensor')}_humidity"
+            )
+            self._attr_device_class = getattr(
+                SensorDeviceClass, "HUMIDITY", "humidity"
+            )
+            self._attr_native_unit_of_measurement = "%"
+            self._attr_icon = "mdi:water-percent"
 
     @property
     def name(self):
@@ -66,31 +96,25 @@ class LeelenSensor(SensorEntity):
 
     @property
     def native_value(self):
-        state = self._state
-        if state is not None:
-            try:
-                return float(state)
-            except (ValueError, TypeError):
-                return state
-        return None
+        if self._coordinator is None:
+            return None
+        value = self._coordinator.get_fiid_value(
+            self._did,
+            self._siid,
+            self._fiid,
+        )
+        if self._fiid == FIID_TEMPERATURE:
+            return extract_temperature(value)
+        return extract_humidity(value)
 
-    async def async_update(self):
-        try:
-            result = await HttpApi.get_instance(self._hass).read_dids_fiids(
-                did=self._did,
-                direct_did=self._direct_did,
-                fiids=[FIID_READ],
-                siid=self._siid
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        if self._coordinator is not None:
+            self.async_on_remove(
+                self._coordinator.async_add_listener(
+                    self._handle_coordinator_update
+                )
             )
 
-            if result.get("result") == 1:
-                params = result.get("params", [])
-                if params:
-                    fiids_data = params[0].get("fiids", [])
-                    if fiids_data:
-                        value = fiids_data[0].get("value", {})
-                        if isinstance(value, dict):
-                            property_id = self._param_info.get("propertyId")
-                            self._state = value.get(property_id)
-        except Exception as e:
-            _LOGGER.error(f"更新传感器状态失败: {e}")
+    def _handle_coordinator_update(self):
+        self.async_write_ha_state()
