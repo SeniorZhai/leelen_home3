@@ -1,0 +1,10 @@
+services:
+  homeassistant:
+    image: ghcr.io/seniorzhai/leelen-homeassistant:latest
+    container_name: leelen-homeassistant
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./config:/config

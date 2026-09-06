@@ -1,0 +1,8 @@
+**
+!custom_components/
+!custom_components/leelen_home3/
+!custom_components/leelen_home3/**
+!docker/
+!docker/entrypoint.sh
+**/__pycache__/
+**/*.pyc
