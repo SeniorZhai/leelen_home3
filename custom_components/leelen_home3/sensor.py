@@ -95,6 +95,10 @@ class LeelenPanelSensor(SensorEntity):
         )
 
     @property
+    def available(self):
+        return self._coordinator is not None and self._coordinator.last_update_success
+
+    @property
     def native_value(self):
         if self._coordinator is None:
             return None

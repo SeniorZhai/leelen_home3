@@ -6,12 +6,14 @@ from datetime import timedelta
 from time import monotonic, time
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .device_catalog import (
     SERVICE_TYPE_CENTRAL_AIR_CONDITIONER,
     SERVICE_TYPE_FLOOR_HEATING,
+    SERVICE_TYPE_FRESH_AIR,
     SERVICE_TYPE_SENSOR,
     build_climate_sensor_sources,
 )
@@ -21,10 +23,12 @@ _LOGGER = logging.getLogger(__name__)
 
 FIID_CLIMATE = 49411
 FIID_HEATER = 49415
+FIID_FRESHER = 49412
 FIID_TEMPERATURE = 16641
 FIID_HUMIDITY = 16642
 
 SERVICE_FIIDS = {
+    SERVICE_TYPE_FRESH_AIR: [FIID_FRESHER],
     SERVICE_TYPE_CENTRAL_AIR_CONDITIONER: [
         FIID_CLIMATE,
         FIID_TEMPERATURE,
@@ -80,6 +84,8 @@ class LeelenCoordinator(DataUpdateCoordinator):
                 if reads
                 else {"result": 1, "params": []}
             )
+            if state_response.get("result") != 1:
+                raise HomeAssistantError("Leelen state refresh failed")
             states, state_times = self._state_index(state_response)
             sensor_sources = (
                 build_climate_sensor_sources(devices)
@@ -162,7 +168,7 @@ class LeelenCoordinator(DataUpdateCoordinator):
             )
             if result.get("result") != 1:
                 self._control_expectations.pop(key, None)
-                return False
+                raise HomeAssistantError("Leelen rejected the control request")
 
             retry_delay = pending_read_delay(result)
             if (
@@ -174,11 +180,13 @@ class LeelenCoordinator(DataUpdateCoordinator):
             read_result = await self._api.read_dids_fiids(
                 did=did,
                 direct_did=direct_did,
-                fiids=[fiid, FIID_TEMPERATURE],
+                fiids=[fiid] if fiid == FIID_FRESHER else [fiid, FIID_TEMPERATURE],
                 siid=siid,
                 is_real_date=1,
             )
-            return self._merge_control_read(read_result, key, value)
+            if not self._merge_control_read(read_result, key, value):
+                raise HomeAssistantError("Leelen has not confirmed the requested state")
+            return True
         except Exception:
             self._control_expectations.pop(key, None)
             raise

@@ -194,16 +194,6 @@ class DeviceCatalogTests(unittest.TestCase):
             self.catalog.entity_unique_id(device, service, "climate"),
         )
 
-    def test_keeps_last_temperature_while_gateway_value_is_pending(self):
-        self.assertEqual(22.5, self.catalog.merge_temperature(22.5, None))
-        self.assertEqual(
-            22.5,
-            self.catalog.merge_temperature(22.5, {"humidity": 40}),
-        )
-        self.assertEqual(
-            25.0,
-            self.catalog.merge_temperature(22.5, {"curTemp": 25}),
-        )
 
 
 if __name__ == "__main__":

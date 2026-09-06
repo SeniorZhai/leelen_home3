@@ -11,6 +11,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
@@ -103,11 +104,11 @@ class LeelenClimate(ClimateEntity):
 
         self._current_temperature = None
         self._current_humidity = None
-        self._target_temperature = 26
-        self._hvac_mode = HVACMode.OFF
+        self._target_temperature = None
+        self._hvac_mode = None
         self._fan_mode = FAN_MEDIUM
         self._raw_wind_speed = None
-        self._on_off = False
+        self._on_off = None
 
         self._attr_unique_id = entity_unique_id(
             device,
@@ -128,6 +129,10 @@ class LeelenClimate(ClimateEntity):
             manufacturer="Leelen",
             model=str(self._device.get("model")),
         )
+
+    @property
+    def available(self):
+        return self._coordinator.last_update_success and self._on_off is not None
 
     @property
     def current_temperature(self):
@@ -232,6 +237,9 @@ class LeelenClimate(ClimateEntity):
         if target_temperature is None:
             target_temperature = self._target_temperature
 
+        if on_off is None or target_temperature is None:
+            raise HomeAssistantError("Wait for the floor-heating state before controlling it")
+
         value = {
             "onOff": 1 if on_off else 0,
             "mode": REVERSE_HVAC_MODE_MAP.get(hvac_mode, 0),
@@ -266,6 +274,7 @@ class LeelenClimate(ClimateEntity):
                 )
         except Exception as exc:
             _LOGGER.error("控制暖通设备失败: %s", exc)
+            raise
 
     def _apply_coordinator_state(self):
         values = {

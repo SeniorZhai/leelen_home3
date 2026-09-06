@@ -1,6 +1,6 @@
 services:
   homeassistant:
-    image: ghcr.io/seniorzhai/leelen-homeassistant:latest
+    image: ${LEELEN_IMAGE:?Set LEELEN_IMAGE to the verified image tag or digest}
     container_name: leelen-homeassistant
     restart: unless-stopped
     network_mode: host

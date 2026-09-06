@@ -72,6 +72,9 @@ def install_home_assistant_stubs():
 
     sensor.SensorDeviceClass = SensorDeviceClass
 
+    exceptions = add_module("homeassistant.exceptions")
+    exceptions.HomeAssistantError = type("HomeAssistantError", (Exception,), {})
+
     config_entries = add_module("homeassistant.config_entries")
     config_entries.ConfigEntry = object
     core = add_module("homeassistant.core")
@@ -86,6 +89,18 @@ def install_home_assistant_stubs():
     helpers.__path__ = []
     entity = add_module("homeassistant.helpers.entity")
     entity.DeviceInfo = dict
+    update = add_module("homeassistant.helpers.update_coordinator")
+
+    class DataUpdateCoordinator:
+        def __init__(self, hass, logger, **kwargs):
+            self.hass = hass
+            self.data = None
+            self.last_update_success = True
+
+        def async_set_updated_data(self, data):
+            self.data = data
+
+    update.DataUpdateCoordinator = DataUpdateCoordinator
 
 
 def load_platforms():
@@ -103,7 +118,7 @@ def load_platforms():
     )
     return {
         name: importlib.import_module(f"{package_name}.{name}")
-        for name in ("climate", "fan", "sensor")
+        for name in ("climate", "fan", "sensor", "coordinator")
     }
 
 
@@ -121,8 +136,12 @@ def create_live_platform_entities():
     class Hass:
         data = {"leelen3": {"devices": {"entry-1": devices}}}
 
+    coordinator = platforms["coordinator"].LeelenCoordinator(Hass(), Entry(), None)
+    coordinator._data = {"devices": devices}
+    Hass.data["leelen3"]["entry-1"] = {"coordinator": coordinator}
     created = {}
-    for name, platform in platforms.items():
+    for name in ("climate", "fan", "sensor"):
+        platform = platforms[name]
         entities = []
         asyncio.run(platform.async_setup_entry(Hass(), Entry(), entities.extend))
         created[name] = entities
@@ -135,7 +154,7 @@ class PlatformSetupTests(unittest.TestCase):
 
         self.assertEqual(11, len(created["climate"]))
         self.assertEqual(1, len(created["fan"]))
-        self.assertEqual(6, len(created["sensor"]))
+        self.assertEqual(12, len(created["sensor"]))
         self.assertEqual(
             ["LeelenClimate"] * 6 + ["LeelenHeater"] * 5,
             [type(entity).__name__ for entity in created["climate"]],
@@ -166,36 +185,100 @@ class PlatformSetupTests(unittest.TestCase):
         )
 
     def test_floor_heater_reports_heat_when_on_without_mode_field(self):
-        catalog = load_catalog_module()
-        devices = [
-            catalog.normalize_device(physical, detail)
-            for physical, detail in LIVE_ACCOUNT_FIXTURE
-        ]
-        climate = load_platforms()["climate"]
+        heater = create_live_platform_entities()["climate"][6]
+        heater._apply_values({49415: {"onOff": 1, "setTemp": 26}})
+        self.assertEqual("heat", heater.hvac_mode.value)
+        self.assertEqual(26, heater.target_temperature)
 
-        class Entry:
-            entry_id = "entry-1"
+    def test_temperature_stays_unknown_until_read_and_retains_pending_value(self):
+        heater = create_live_platform_entities()["climate"][6]
+        self.assertIsNone(heater.current_temperature)
+        self.assertIsNone(heater.target_temperature)
+        heater._apply_values({16641: 22.5})
+        heater._apply_values({16641: None})
+        self.assertEqual(22.5, heater.current_temperature)
+        heater._apply_values({16641: {"curTemp": 25}})
+        self.assertEqual(25, heater.current_temperature)
 
-        class Hass:
-            data = {"leelen3": {"devices": {"entry-1": devices}}}
+    def test_fan_control_round_trips_and_does_not_invent_state(self):
+        fan = create_live_platform_entities()["fan"][0]
+        coordinator = fan._coordinator
+        key = (fan._did, fan._siid, 49412)
+        self.assertIsNone(fan.is_on)
+        self.assertIsNone(fan.percentage)
+        self.assertFalse(fan.available)
+        calls = []
 
-        entities = []
-        asyncio.run(climate.async_setup_entry(Hass(), Entry(), entities.extend))
-        heater = next(
-            entity for entity in entities if type(entity).__name__ == "LeelenHeater"
-        )
+        class Api:
+            response = 1
+            confirm = True
 
-        class FakeApi:
+            async def encrypt_v1_ctrl_fiids(self, **kwargs):
+                calls.append(kwargs)
+                return {"result": self.response}
+
             async def read_dids_fiids(self, **kwargs):
-                return {
-                    "result": 1,
-                    "params": [{"fiids": [{"value": {"onOff": 1, "setTemp": 26}}]}],
-                }
+                self.read_fiids = kwargs["fiids"]
+                value = calls[-1]["fiids"][0]["value"] if self.confirm else {"onOff": 0}
+                return {"result": 1, "params": [{"did": fan._did, "siid": fan._siid,
+                        "fiids": [{"fiid": 49412, "value": value}]}]}
 
-        climate.HttpApi.get_instance = classmethod(lambda cls, hass=None: FakeApi())
-        asyncio.run(heater.async_update())
+        api = Api()
+        coordinator._api = api
+        for percentage, speed in ((1, 0), (33, 0), (34, 1), (66, 1), (67, 2), (100, 2)):
+            asyncio.run(fan.async_set_percentage(percentage))
+            self.assertEqual({"onOff": 1, "windSpeed": speed}, calls[-1]["fiids"][0]["value"])
+            self.assertEqual([49412], api.read_fiids)
+            self.assertEqual((33, 66, 100)[speed], fan.percentage)
+            self.assertTrue(fan.is_on)
+        asyncio.run(fan.async_turn_off())
+        self.assertEqual({"onOff": 0}, calls[-1]["fiids"][0]["value"])
+        self.assertFalse(fan.is_on)
+        self.assertEqual(0, fan.percentage)
+        asyncio.run(fan.async_turn_on())
+        self.assertEqual({"onOff": 1}, calls[-1]["fiids"][0]["value"])
+        self.assertEqual(100, fan.percentage)
+        api.response = 0
+        with self.assertRaisesRegex(Exception, "rejected"):
+            asyncio.run(fan.async_turn_off())
+        self.assertTrue(fan.is_on)
+        api.response = 1
+        api.confirm = False
+        with self.assertRaisesRegex(Exception, "not confirmed"):
+            asyncio.run(fan.async_set_percentage(33))
+        self.assertEqual(100, fan.percentage)
+        self.assertNotIn(key, coordinator._control_expectations)
+        for percentage in (-1, 101):
+            with self.assertRaisesRegex(Exception, "between"):
+                asyncio.run(fan.async_set_percentage(percentage))
 
-        self.assertEqual(climate.HVACMode.HEAT, heater.hvac_mode)
+    def test_refresh_reads_fan_and_push_updates_its_state(self):
+        fan = create_live_platform_entities()["fan"][0]
+        coordinator = fan._coordinator
+        reads = coordinator._build_state_reads(coordinator.get_devices())
+        self.assertTrue(any(read["did"] == fan._did and read["fiids"] == [49412] for read in reads))
+        coordinator.async_apply_mqtt_payload({"method": "dmgr.notifyFIIDS", "params": {
+            "did": fan._did, "siid": fan._siid,
+            "fiids": [{"fiid": 49412, "value": {"onOff": 1, "windSpeed": 1}}],
+        }})
+        self.assertTrue(fan.is_on)
+        self.assertEqual(66, fan.percentage)
+        coordinator.last_update_success = False
+        self.assertFalse(fan.available)
+
+    def test_panel_missing_temperature_and_humidity_are_unknown(self):
+        sensors = create_live_platform_entities()["sensor"]
+        self.assertTrue(all(sensor.native_value is None for sensor in sensors))
+        sensor = sensors[0]
+        coordinator = sensor._coordinator
+        coordinator._data["states"] = {
+            (sensor._did, sensor._siid, 16641): {"temperature": 23.5},
+            (sensor._did, sensor._siid, 16642): {"humidity": 48},
+        }
+        self.assertEqual(23.5, sensors[0].native_value)
+        self.assertEqual(48, sensors[1].native_value)
+        coordinator.last_update_success = False
+        self.assertFalse(sensor.available)
 
 
 if __name__ == "__main__":
