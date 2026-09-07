@@ -1,0 +1,50 @@
+alias: 米家 - 地暖开关
+description: 四组地暖，公共区两路同开同关，保留各自目标温度；替换示例实体后使用
+triggers:
+  - trigger: event.received
+    target:
+      entity_id: event.example_virtual_event
+    options:
+      event_type:
+        - 虚拟事件发生
+conditions:
+  - condition: template
+    value_template: >-
+      {{ command in commands
+         and trigger.from_state is not none
+         and trigger.to_state.state != trigger.from_state.state
+         and 0 <= as_timestamp(now()) - as_timestamp(trigger.to_state.state, 0) < 10 }}
+actions:
+  - action: climate.set_hvac_mode
+    target:
+      entity_id: '{{ commands[command][0] }}'
+    data:
+      hvac_mode: '{{ commands[command][1] }}'
+variables:
+  commands:
+    区域甲地暖开启:
+      - [climate.example_zone_a]
+      - heat
+    区域甲地暖关闭:
+      - [climate.example_zone_a]
+      - 'off'
+    区域乙地暖开启:
+      - [climate.example_zone_b]
+      - heat
+    区域乙地暖关闭:
+      - [climate.example_zone_b]
+      - 'off'
+    区域丙地暖开启:
+      - [climate.example_zone_c]
+      - heat
+    区域丙地暖关闭:
+      - [climate.example_zone_c]
+      - 'off'
+    公共区地暖开启:
+      - [climate.example_common_1, climate.example_common_2]
+      - heat
+    公共区地暖关闭:
+      - [climate.example_common_1, climate.example_common_2]
+      - 'off'
+  command: '{{ trigger.to_state.attributes.get("事件名称", "") }}'
+mode: queued

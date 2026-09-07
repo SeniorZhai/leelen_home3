@@ -172,10 +172,6 @@ class SslUtils:
                 cert_file.flush()
 
                 bks_data = ConvertUtils.hex_to_bytes2(bks_hex)
-                # with open("/Users/snail/Desktop/立林智慧生活项目/leelen_python/test/my.p12", "rb") as fff:
-                #     ddd = fff.read()
-                #     print(ddd.hex())
-                # p12 = crypto.load_pkcs12(p12_data, bks_password.encode())
                 private_key, cert, additional_certs = pkcs12.load_key_and_certificates(
                     bks_data,
                     bks_password.encode() if bks_password else None,

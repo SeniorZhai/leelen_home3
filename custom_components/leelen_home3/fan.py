@@ -68,7 +68,7 @@ class LeelenFan(FanEntity):
     def percentage(self):
         if self.is_on is False:
             return 0
-        return SPEED_PERCENTAGE.get(self._state.get("windSpeed"))
+        return SPEED_PERCENTAGE.get(self._state.get("gear"))
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -92,7 +92,7 @@ class LeelenFan(FanEntity):
             await self.async_turn_off()
             return
         speed = next(speed for speed, pct in SPEED_PERCENTAGE.items() if pct >= percentage)
-        await self._send_control({"onOff": 1, "windSpeed": speed})
+        await self._send_control({"onOff": 1, "gear": speed})
 
     async def _send_control(self, value):
         await self._coordinator.async_control_fiid(

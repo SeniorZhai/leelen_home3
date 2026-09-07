@@ -6,10 +6,10 @@
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "",
+  "documentation": "https://github.com/SeniorZhai/leelen_home3",
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "issue_tracker": "",
+  "issue_tracker": "https://github.com/SeniorZhai/leelen_home3/issues",
   "loggers": [
     "Leelen Home3"
   ],

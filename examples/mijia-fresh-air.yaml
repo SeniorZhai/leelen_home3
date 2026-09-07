@@ -1,0 +1,21 @@
+alias: 米家 - 新风开关
+description: 中文事件控制新风开关，开启沿用当前风档；替换示例实体后使用
+triggers:
+  - trigger: event.received
+    target:
+      entity_id: event.example_virtual_event
+    options:
+      event_type:
+        - 虚拟事件发生
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.to_state.attributes.get("事件名称", "") in ["新风开启", "新风关闭"]
+         and trigger.from_state is not none
+         and trigger.to_state.state != trigger.from_state.state
+         and 0 <= as_timestamp(now()) - as_timestamp(trigger.to_state.state, 0) < 10 }}
+actions:
+  - action: '{{ "fan.turn_on" if trigger.to_state.attributes.get("事件名称") == "新风开启" else "fan.turn_off" }}'
+    target:
+      entity_id: fan.example_fresh_air
+mode: queued

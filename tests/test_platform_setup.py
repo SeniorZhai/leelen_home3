@@ -190,6 +190,38 @@ class PlatformSetupTests(unittest.TestCase):
         self.assertEqual("heat", heater.hvac_mode.value)
         self.assertEqual(26, heater.target_temperature)
 
+    def test_heater_control_confirms_only_fields_reported_by_device(self):
+        heater = create_live_platform_entities()["climate"][6]
+        coordinator = heater._coordinator
+        state = {"onOff": 0, "setTemp": 29}
+        coordinator._data["states"] = {(heater._did, heater._siid, 49415): dict(state)}
+        heater._apply_coordinator_state()
+        calls = []
+
+        class Api:
+            async def encrypt_v1_ctrl_fiids(self, **kwargs):
+                value = kwargs["fiids"][0]["value"]
+                calls.append(value)
+                state.update({key: value[key] for key in state if key in value})
+                return {"result": 1}
+
+            async def read_dids_fiids(self, **kwargs):
+                return {"result": 1, "params": [{"did": heater._did, "siid": heater._siid,
+                        "fiids": [{"fiid": 49415, "value": dict(state)}]}]}
+
+        coordinator._api = Api()
+        modes = sys.modules["platform_probe.climate"].HVACMode
+        for mode, power in ((modes.HEAT, 1), (modes.OFF, 0)):
+            asyncio.run(heater.async_set_hvac_mode(mode))
+            heater._apply_coordinator_state()
+            self.assertEqual({"onOff": power, "setTemp": 29}, calls[-1])
+            self.assertEqual(mode, heater.hvac_mode)
+        asyncio.run(heater.async_set_temperature(temperature=27))
+        heater._apply_coordinator_state()
+        self.assertEqual({"onOff": 0, "setTemp": 27}, calls[-1])
+        self.assertEqual(27, heater.target_temperature)
+        self.assertEqual(modes.OFF, heater.hvac_mode)
+
     def test_temperature_stays_unknown_until_read_and_retains_pending_value(self):
         heater = create_live_platform_entities()["climate"][6]
         self.assertIsNone(heater.current_temperature)
@@ -227,7 +259,7 @@ class PlatformSetupTests(unittest.TestCase):
         coordinator._api = api
         for percentage, speed in ((1, 0), (33, 0), (34, 1), (66, 1), (67, 2), (100, 2)):
             asyncio.run(fan.async_set_percentage(percentage))
-            self.assertEqual({"onOff": 1, "windSpeed": speed}, calls[-1]["fiids"][0]["value"])
+            self.assertEqual({"onOff": 1, "gear": speed}, calls[-1]["fiids"][0]["value"])
             self.assertEqual([49412], api.read_fiids)
             self.assertEqual((33, 66, 100)[speed], fan.percentage)
             self.assertTrue(fan.is_on)
@@ -259,7 +291,7 @@ class PlatformSetupTests(unittest.TestCase):
         self.assertTrue(any(read["did"] == fan._did and read["fiids"] == [49412] for read in reads))
         coordinator.async_apply_mqtt_payload({"method": "dmgr.notifyFIIDS", "params": {
             "did": fan._did, "siid": fan._siid,
-            "fiids": [{"fiid": 49412, "value": {"onOff": 1, "windSpeed": 1}}],
+            "fiids": [{"fiid": 49412, "value": {"onOff": 1, "gear": 1}}],
         }})
         self.assertTrue(fan.is_on)
         self.assertEqual(66, fan.percentage)

@@ -41,3 +41,16 @@ Thumbs.db
 OPTIMIZATION_SUMMARY.md
 
 .claude/
+.codex/
+.env
+.env.*
+.storage/
+*.log
+*.bak
+*.db-wal
+*.db-shm
+agent.md
+AGENTS.md
+GEMINI.md
+CLAUDE.md
+.github/copilot-instructions.md

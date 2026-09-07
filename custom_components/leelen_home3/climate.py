@@ -207,7 +207,6 @@ class LeelenClimate(ClimateEntity):
         else:
             value = self._complete_control_value(
                 on_off=hvac_mode != HVACMode.OFF,
-                hvac_mode=hvac_mode,
             )
         await self._send_control(value)
 
@@ -226,36 +225,20 @@ class LeelenClimate(ClimateEntity):
         self,
         *,
         on_off=None,
-        hvac_mode=None,
         target_temperature=None,
     ):
-        """Keep the existing floor-heating request shape unchanged."""
         if on_off is None:
             on_off = self._on_off
-        if hvac_mode is None:
-            hvac_mode = self._hvac_mode
         if target_temperature is None:
             target_temperature = self._target_temperature
 
         if on_off is None or target_temperature is None:
             raise HomeAssistantError("Wait for the floor-heating state before controlling it")
 
-        value = {
+        return {
             "onOff": 1 if on_off else 0,
-            "mode": REVERSE_HVAC_MODE_MAP.get(hvac_mode, 0),
             "setTemp": int(target_temperature),
         }
-        wind_speed = next(
-            (
-                speed
-                for speed, name in FAN_MODES.items()
-                if name == self._fan_mode
-            ),
-            None,
-        )
-        if wind_speed is not None:
-            value["windSpeed"] = wind_speed
-        return value
 
     async def _send_control(self, value):
         try:
