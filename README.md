@@ -26,9 +26,9 @@ flowchart TB
     end
     subgraph bridge[米家侧]
         Hub[支持产生虚拟事件的米家中枢]
-        Xiaomi[官方 Xiaomi Home 集成]
     end
     subgraph nas[NAS：Home Assistant 容器]
+        Xiaomi[官方 Xiaomi Home 集成]
         Event[虚拟事件实体]
         Automation[中文事件白名单<br/>新事件校验 / 排队执行]
         Entity[climate / fan / sensor 实体]
